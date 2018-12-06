@@ -90,6 +90,7 @@ uses
 {$ELSE}
   TinyWideStrings,
 {$ENDIF}
+  DynamicDll,
   MethodCallBack;
 
 //#######################################################
@@ -1266,11 +1267,6 @@ type
 
   // Components' exceptions
   EDLLLoadError  = class(Exception);
-  EDLLImportError = class(Exception)
-    public
-      WrongFunc : AnsiString;
-      ErrorCode : Integer;
-  end;
 
   // Python's exceptions
   EPythonError   = class(Exception)
@@ -1483,70 +1479,6 @@ type
     property RawOutput: Boolean read FRawOutput write FRawOutput;
   end;
 
-//-------------------------------------------------------
-//--                                                   --
-//--      Base class:  TDynamicDll                     --
-//--                                                   --
-//-------------------------------------------------------
-
-type
-  TDynamicDll = class(TComponent)
-  private
-    function IsAPIVersionStored: Boolean;
-    function IsDllNameStored: Boolean;
-    function IsRegVersionStored: Boolean;
-    procedure SetDllName(const Value: String);
-  protected
-    FDllName            : String;
-    FDllPath            : String;
-    FAPIVersion         : Integer;
-    FRegVersion         : String;
-    FAutoLoad           : Boolean;
-    FAutoUnload         : Boolean;
-    FFatalMsgDlg        : Boolean;
-    FFatalAbort         : Boolean;
-    FDLLHandle          : THandle;
-    FUseLastKnownVersion: Boolean;
-    FOnBeforeLoad       : TNotifyEvent;
-    FOnAfterLoad        : TNotifyEvent;
-    FOnBeforeUnload     : TNotifyEvent;
-
-    function  Import(const funcname: AnsiString; canFail : Boolean = True): Pointer;
-    procedure Loaded; override;
-    procedure BeforeLoad; virtual;
-    procedure AfterLoad; virtual;
-    procedure BeforeUnload; virtual;
-    function  GetQuitMessage : String; virtual;
-    procedure DoOpenDll(const aDllName : String); virtual;
-    function  GetDllPath : String;
-
-  public
-    // Constructors & Destructors
-    constructor Create(AOwner: TComponent); override;
-    destructor  Destroy;                    override;
-
-    // Public methods
-    procedure OpenDll(const aDllName : String);
-    function  IsHandleValid : Boolean;
-    procedure LoadDll;
-    procedure UnloadDll;
-    procedure Quit;
-
-    // Public properties
-  published
-    property AutoLoad : Boolean read FAutoLoad write FAutoLoad default True;
-    property AutoUnload : Boolean read FAutoUnload write FAutoUnload default True;
-    property DllName : String read FDllName write SetDllName stored IsDllNameStored;
-    property DllPath : String read FDllPath write FDllPath;
-    property APIVersion : Integer read FAPIVersion write FAPIVersion stored IsAPIVersionStored;
-    property RegVersion : String read FRegVersion write FRegVersion stored IsRegVersionStored;
-    property FatalAbort :  Boolean read FFatalAbort write FFatalAbort default True;
-    property FatalMsgDlg : Boolean read FFatalMsgDlg write FFatalMsgDlg default True;
-    property UseLastKnownVersion: Boolean read FUseLastKnownVersion write FUseLastKnownVersion default True;
-    property OnAfterLoad : TNotifyEvent read FOnAfterLoad write FOnAfterLoad;
-    property OnBeforeLoad : TNotifyEvent read FOnBeforeLoad write FOnBeforeLoad;
-    property OnBeforeUnload : TNotifyEvent read FOnBeforeUnload write FOnBeforeUnload;
-  end;
 
 //-------------------------------------------------------
 //--                                                   --
@@ -1578,7 +1510,7 @@ type
     FBuiltInModuleName: String;
     function GetInitialized: Boolean;
 
-    procedure AfterLoad; override;
+    function  GetDllPath : String; override;
     function  GetQuitMessage : String; override;
     procedure CheckPython;
     function  GetUnicodeTypeSuffix : String;
@@ -2119,7 +2051,7 @@ type
   constructor Create(AOwner: TComponent); override;
 
   // Public methods
-  procedure MapDll;
+  procedure MapDll; override;
 
   // Public properties
   property Initialized : Boolean read GetInitialized;
@@ -3343,204 +3275,6 @@ begin
   FLinesPerThread.Strings[ GetCurrentThreadSlotIdx ] := FLine_Buffer;
 end;
 
-(*******************************************************)
-(**                                                   **)
-(**            class TDynamicDll                      **)
-(**                                                   **)
-(*******************************************************)
-
-procedure TDynamicDll.DoOpenDll(const aDllName : String);
-begin
-  if not IsHandleValid then
-  begin
-    FDllName := aDllName;
-    FDLLHandle := SafeLoadLibrary(
-      {$IFDEF FPC}
-        PAnsiChar(AnsiString(GetDllPath+DllName))
-      {$ELSE}
-        GetDllPath+DllName
-      {$ENDIF}
-    );
-  end;
-end;
-
-function  TDynamicDll.GetDllPath : String;
-{$IFDEF MSWINDOWS}
-var
-  AllUserInstall: Boolean;
-{$ENDIF}
-begin
-  Result := DllPath;
-
-  {$IFDEF MSWINDOWS}
-  if DLLPath = '' then begin
-    IsPythonVersionRegistered(RegVersion, Result, AllUserInstall);
-  end;
-  {$ENDIF}
-
-  if Result <> '' then
-  begin
-    Result := IncludeTrailingPathDelimiter(Result);
-  end;
-end;
-
-procedure  TDynamicDll.OpenDll(const aDllName : String);
-var
-  s : String;
-begin
-  UnloadDll;
-
-  BeforeLoad;
-
-  FDLLHandle := 0;
-
-  DoOpenDll(aDllName);
-
-  if not IsHandleValid then begin
-{$IFDEF MSWINDOWS}
-    s := Format('Error %d: Could not open Dll "%s"',[GetLastError, DllName]);
-{$ENDIF}
-{$IFDEF LINUX}
-    s := Format('Error: Could not open Dll "%s"',[DllName]);
-{$ENDIF}
-    if FatalMsgDlg then
-{$IFDEF MSWINDOWS}
-      MessageBox( GetActiveWindow, PChar(s), 'Error', MB_TASKMODAL or MB_ICONSTOP );
-{$ENDIF}
-{$IFDEF LINUX}
-      WriteLn(ErrOutput, s);
-{$ENDIF}
-
-    if FatalAbort then
-      Quit;
-  end else
-    AfterLoad;
-end;
-
-constructor TDynamicDll.Create(AOwner: TComponent);
-begin
-  inherited;
-  FFatalMsgDlg          := True;
-  FFatalAbort           := True;
-  FAutoLoad             := True;
-  FUseLastKnownVersion  := True;
-end;
-
-destructor TDynamicDll.Destroy;
-begin
-  if AutoUnload then
-    UnloadDll;
-  inherited;
-end;
-
-function TDynamicDll.Import(const funcname: AnsiString; canFail : Boolean = True): Pointer;
-var
-  E : EDllImportError;
-begin
-  Result := GetProcAddress( FDLLHandle, PAnsiChar(funcname) );
-  if (Result = nil) and canFail then begin
-    {$IFDEF MSWINDOWS}
-    E := EDllImportError.CreateFmt('Error %d: could not map symbol "%s"', [GetLastError, funcname]);
-    E.ErrorCode := GetLastError;
-    {$ELSE}
-    E := EDllImportError.CreateFmt('Error: could not map symbol "%s"', [funcname]);
-    {$ENDIF}
-    E.WrongFunc := funcname;
-    raise E;
-  end;
-end;
-
-procedure TDynamicDll.Loaded;
-begin
-  inherited;
-  if AutoLoad and not (csDesigning in ComponentState) then
-    LoadDll;
-end;
-
-function  TDynamicDll.IsHandleValid : Boolean;
-begin
-{$IFDEF MSWINDOWS}
-  Result := (FDLLHandle >= 32);
-{$ENDIF}
-{$IFDEF LINUX}
-  Result := FDLLHandle <> 0;
-{$ENDIF}
-end;
-
-procedure TDynamicDll.LoadDll;
-begin
-  OpenDll( DllName );
-end;
-
-procedure TDynamicDll.UnloadDll;
-begin
-  if IsHandleValid then begin
-    BeforeUnload;
-    FreeLibrary(FDLLHandle);
-    FDLLHandle := 0;
-  end;
-end;
-
-procedure TDynamicDll.BeforeLoad;
-begin
-  if Assigned( FOnBeforeLoad ) then
-    FOnBeforeLoad( Self );
-end;
-
-procedure TDynamicDll.AfterLoad;
-begin
-  if Assigned( FOnAfterLoad ) then
-    FOnAfterLoad( Self );
-end;
-
-procedure TDynamicDll.BeforeUnload;
-begin
-  if Assigned( FOnBeforeUnload ) then
-    FOnBeforeUnload( Self );
-end;
-
-function  TDynamicDll.GetQuitMessage : String;
-begin
-  Result := Format( 'Dll %s could not be loaded. We must quit.', [DllName]);
-end;
-
-procedure TDynamicDll.Quit;
-begin
-  if not( csDesigning in ComponentState ) then begin
-{$IFDEF MSWINDOWS}
-    MessageBox( GetActiveWindow, PChar(GetQuitMessage), 'Error', MB_TASKMODAL or MB_ICONSTOP );
-    ExitProcess( 1 );
-{$ELSE}
-    WriteLn(ErrOutput, GetQuitMessage);
-{$IFDEF FPC}
-    Halt( 1 );
-{$ELSE}
-    __exit(1);
-{$ENDIF}
-{$ENDIF}
-  end;
-end;
-
-function TDynamicDll.IsAPIVersionStored: Boolean;
-begin
-  Result := not UseLastKnownVersion;
-end;
-
-function TDynamicDll.IsDllNameStored: Boolean;
-begin
-  Result := not UseLastKnownVersion;
-end;
-
-function TDynamicDll.IsRegVersionStored: Boolean;
-begin
-  Result := not UseLastKnownVersion;
-end;
-
-procedure TDynamicDll.SetDllName(const Value: String);
-begin
-  FDllName := Value;
-end;
-
 
 (*******************************************************)
 (**                                                   **)
@@ -3560,32 +3294,22 @@ begin
   FAutoUnload := True;
 end;
 
-procedure TPythonInterface.AfterLoad;
-begin
-  inherited;
-  FIsPython3000 := Pos('PYTHON3', UpperCase(DLLName)) >  0;
-  FMajorVersion := StrToInt(DLLName[7 {$IFDEF LINUX}+3{$ENDIF}]);
-  FMinorVersion := StrToInt(DLLName[8{$IFDEF LINUX}+4{$ENDIF}]);
-
-
-  if FIsPython3000 then
-    FBuiltInModuleName := 'builtins'
-  else
-    FBuiltInModuleName := '__builtin__';
-
-  try
-    MapDll;
-  except
-    on E: Exception do begin
-      if FatalMsgDlg then
+function TPythonInterface.GetDllPath: String;
 {$IFDEF MSWINDOWS}
-        MessageBox( GetActiveWindow, PChar(E.Message), 'Error', MB_TASKMODAL or MB_ICONSTOP );
-{$ELSE}
-        WriteLn( ErrOutput, E.Message );
+var
+  AllUserInstall: Boolean;
 {$ENDIF}
-      if FatalAbort then Quit;
-    end;
+begin
+  Result := DllPath;
+
+  {$IFDEF MSWINDOWS}
+  if DLLPath = '' then begin
+    IsPythonVersionRegistered(RegVersion, Result, AllUserInstall);
   end;
+  {$ENDIF}
+
+  if Result <> '' then
+    Result := IncludeTrailingPathDelimiter(Result);
 end;
 
 function  TPythonInterface.GetQuitMessage : String;
@@ -3619,6 +3343,15 @@ end;
 
 procedure TPythonInterface.MapDll;
 begin
+  FIsPython3000 := Pos('PYTHON3', UpperCase(DLLName)) >  0;
+  FMajorVersion := StrToInt(DLLName[7 {$IFDEF LINUX}+3{$ENDIF}]);
+  FMinorVersion := StrToInt(DLLName[8{$IFDEF LINUX}+4{$ENDIF}]);
+
+  if FIsPython3000 then
+    FBuiltInModuleName := 'builtins'
+  else
+    FBuiltInModuleName := '__builtin__';
+
   Py_DebugFlag               := Import('Py_DebugFlag');
   Py_VerboseFlag             := Import('Py_VerboseFlag');
   Py_InteractiveFlag         := Import('Py_InteractiveFlag');
@@ -4027,12 +3760,12 @@ begin
   PyType_GenericAlloc       :=Import('PyType_GenericAlloc');
   PyType_GenericNew         :=Import('PyType_GenericNew');
   PyType_Ready              :=Import('PyType_Ready');
-  PyUnicode_FromWideChar    :=Import(AnsiString(Format('PyUnicode%s_FromWideChar',[GetUnicodeTypeSuffix])));
-  PyUnicode_AsWideChar      :=Import(AnsiString(Format('PyUnicode%s_AsWideChar',[GetUnicodeTypeSuffix])));
-  PyUnicode_Decode          :=Import(AnsiString(Format('PyUnicode%s_Decode',[GetUnicodeTypeSuffix])));
-  PyUnicode_AsEncodedString :=Import(AnsiString(Format('PyUnicode%s_AsEncodedString',[GetUnicodeTypeSuffix])));
-  PyUnicode_FromOrdinal     :=Import(AnsiString(Format('PyUnicode%s_FromOrdinal',[GetUnicodeTypeSuffix])));
-  PyUnicode_GetSize         :=Import(AnsiString(Format('PyUnicode%s_GetSize',[GetUnicodeTypeSuffix])));
+  PyUnicode_FromWideChar    :=Import(Format('PyUnicode%s_FromWideChar',[GetUnicodeTypeSuffix]));
+  PyUnicode_AsWideChar      :=Import(Format('PyUnicode%s_AsWideChar',[GetUnicodeTypeSuffix]));
+  PyUnicode_Decode          :=Import(Format('PyUnicode%s_Decode',[GetUnicodeTypeSuffix]));
+  PyUnicode_AsEncodedString :=Import(Format('PyUnicode%s_AsEncodedString',[GetUnicodeTypeSuffix]));
+  PyUnicode_FromOrdinal     :=Import(Format('PyUnicode%s_FromOrdinal',[GetUnicodeTypeSuffix]));
+  PyUnicode_GetSize         :=Import(Format('PyUnicode%s_GetSize',[GetUnicodeTypeSuffix]));
   PyWeakref_GetObject       :=Import('PyWeakref_GetObject');
   PyWeakref_NewProxy        :=Import('PyWeakref_NewProxy');
   PyWeakref_NewRef          :=Import('PyWeakref_NewRef');
