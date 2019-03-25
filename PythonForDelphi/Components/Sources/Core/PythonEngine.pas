@@ -2179,6 +2179,7 @@ type
     procedure  Lock;
     procedure  Unlock;
     procedure  SetPythonHome(const PythonHome: string);
+    procedure  SetProgramName(const ProgramName: string);
     function   IsType(ob: PPyObject; obt: PPyTypeObject): Boolean;
     function   GetAttrString(obj: PPyObject; AName: PAnsiChar):PAnsiChar;
     function   CleanString(const s : AnsiString) : AnsiString;
@@ -4592,18 +4593,20 @@ begin
   if IsPython3000 then begin
     if Assigned(Py_SetProgramName3000) then
     begin
-      FProgramNameW := ParamStr(0);
+      if FProgramNameW = '' then
+        FProgramNameW := ParamStr(0);
       Py_SetProgramName3000(PWideChar(FProgramNameW));
     end
   end else begin
     if Assigned(Py_SetProgramName) then
     begin
-      FProgramName := AnsiString(ParamStr(0));
+      if FProgramName = '' then
+        FProgramName := AnsiString(ParamStr(0));
       Py_SetProgramName(PAnsiChar(FProgramName));
     end
   end;
   AssignPyFlags;
-  if FPythonHomeW<>'' then begin
+  if FPythonHomeW <> '' then begin
     if IsPython3000 then
       Py_SetPythonHome3000(PChar(FPythonHomeW))
     else
@@ -4870,6 +4873,12 @@ procedure TPythonEngine.SetPythonHome(const PythonHome: string);
 begin
   FPythonHomeW := PythonHome;
   FPythonHome := EncodeString(PythonHome);
+end;
+
+procedure TPythonEngine.SetProgramName(const ProgramName: string);
+begin
+  FProgramNameW := ProgramName;
+  FProgramName := EncodeString(ProgramName);
 end;
 
 function TPythonEngine.IsType(ob: PPyObject; obt: PPyTypeObject): Boolean;
