@@ -2150,7 +2150,7 @@ type
   protected
     procedure AfterLoad; override;
     procedure BeforeLoad; override;
-    procedure DoOpenDll(const aDllName : String); override;
+    procedure DoOpenDll(aDllName : String); override;
     procedure SetInitScript(Value: TStrings);
     function  GetThreadState: PPyThreadState;
     function  GetInterpreterState: PPyInterpreterState;
@@ -3082,7 +3082,7 @@ procedure PyObjectDestructor( pSelf : PPyObject); cdecl;
 procedure FreeSubtypeInst(ob:PPyObject); cdecl;
 procedure Register;
 function  PyType_HasFeature(AType : PPyTypeObject; AFlag : Integer) : Boolean;
-function GetPythonVersionFromDLLName(const DLLFileName : String): String;
+function GetPythonVersionFromDLLName(DLLFileName : String): String;
 
 { Helper functions}
 (*
@@ -3301,16 +3301,13 @@ var
   AllUserInstall: Boolean;
 {$ENDIF}
 begin
-  Result := DllPath;
+  Result := FDllPath;
 
   {$IFDEF MSWINDOWS}
-  if DLLPath = '' then begin
+  if Result = '' then begin
     IsPythonVersionRegistered(RegVersion, Result, AllUserInstall);
   end;
   {$ENDIF}
-
-  if Result <> '' then
-    Result := IncludeTrailingPathDelimiter(Result);
 end;
 
 function  TPythonInterface.GetQuitMessage : String;
@@ -4477,7 +4474,7 @@ begin
   inherited;
 end;
 
-procedure TPythonEngine.DoOpenDll(const aDllName : String);
+procedure TPythonEngine.DoOpenDll(aDllName : String);
 var
   i : Integer;
 begin
@@ -9512,7 +9509,7 @@ begin
                                 TPythonType, TPythonModule, TPythonDelphiVar]);
 end;
 
-function GetPythonVersionFromDLLName(const DLLFileName : String): String;
+function GetPythonVersionFromDLLName(DLLFileName : String): String;
 begin
   Result := DLLFileName[{$IFDEF MSWINDOWS}7{$ELSE}10{$ENDIF}] + '.' + DLLFileName[{$IFDEF MSWINDOWS}8{$ELSE}11{$ENDIF}];
 end;
