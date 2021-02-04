@@ -1146,7 +1146,6 @@ type
     FMinorVersion:   integer;
     FBuiltInModuleName: string;
 
-    procedure AfterLoad; override;
     function  GetQuitMessage : string; override;
     procedure CheckPython;
     function  GetUnicodeTypeSuffix : string;
@@ -1615,7 +1614,7 @@ type
   constructor Create(AOwner: TComponent); override;
 
   // Public methods
-  procedure MapDll;
+  procedure MapDll; override;
 
   // Public properties
   property Initialized : Boolean read FInitialized;
@@ -2866,33 +2865,6 @@ begin
     IsPythonVersionRegistered(RegVersion, Result, AllUserInstall);
   end;
   {$ENDIF}
-
-  if Result <> '' then
-  begin
-    Result := IncludeTrailingPathDelimiter(Result);
-  end;
-end;
-
-procedure TPythonInterface.AfterLoad;
-begin
-  inherited;
-  PythonVersionFromDLLName(DLLName, FMajorVersion, FMinorVersion);
-
-  FBuiltInModuleName := 'builtins';
-
-  try
-    MapDll;
-  except
-    on E: Exception do begin
-      if FatalMsgDlg then
-{$IFDEF MSWINDOWS}
-        MessageBox( GetActiveWindow, PChar(E.Message), 'Error', MB_TASKMODAL or MB_ICONSTOP );
-{$ELSE}
-        WriteLn( ErrOutput, E.Message );
-{$ENDIF}
-      if FatalAbort then Quit;
-    end;
-  end;
 end;
 
 function  TPythonInterface.GetQuitMessage : string;
@@ -2926,6 +2898,10 @@ Var
   UnicodeSuffix : string;
 
 begin
+  PythonVersionFromDLLName(DLLName, FMajorVersion, FMinorVersion);
+
+  FBuiltInModuleName := 'builtins';
+
   UnicodeSuffix := GetUnicodeTypeSuffix;
 
   Py_DebugFlag               := Import('Py_DebugFlag');
@@ -3236,18 +3212,18 @@ begin
   PyType_GenericAlloc         := Import('PyType_GenericAlloc');
   PyType_GenericNew           := Import('PyType_GenericNew');
   PyType_Ready                := Import('PyType_Ready');
-  PyUnicode_FromWideChar      := Import(AnsiString(Format('PyUnicode%s_FromWideChar',[UnicodeSuffix])));
-  PyUnicode_FromString        := Import(AnsiString(Format('PyUnicode%s_FromString',[UnicodeSuffix])));
-  PyUnicode_FromStringAndSize := Import(AnsiString(Format('PyUnicode%s_FromStringAndSize',[UnicodeSuffix])));
-  PyUnicode_FromKindAndData   := Import(AnsiString(Format('PyUnicode%s_FromKindAndData',[UnicodeSuffix])));
-  PyUnicode_AsWideChar        := Import(AnsiString(Format('PyUnicode%s_AsWideChar',[UnicodeSuffix])));
-  PyUnicode_AsUTF8            := Import(AnsiString(Format('PyUnicode%s_AsUTF8',[UnicodeSuffix])));
-  PyUnicode_AsUTF8AndSize     := Import(AnsiString(Format('PyUnicode%s_AsUTF8AndSize',[UnicodeSuffix])));
-  PyUnicode_Decode            := Import(AnsiString(Format('PyUnicode%s_Decode',[UnicodeSuffix])));
-  PyUnicode_DecodeUTF16       := Import(AnsiString(Format('PyUnicode%s_DecodeUTF16',[UnicodeSuffix])));
-  PyUnicode_AsEncodedString   := Import(AnsiString(Format('PyUnicode%s_AsEncodedString',[UnicodeSuffix])));
-  PyUnicode_FromOrdinal       := Import(AnsiString(Format('PyUnicode%s_FromOrdinal',[UnicodeSuffix])));
-  PyUnicode_GetSize           := Import(AnsiString(Format('PyUnicode%s_GetSize',[UnicodeSuffix])));
+  PyUnicode_FromWideChar      := Import(Format('PyUnicode%s_FromWideChar',[UnicodeSuffix]));
+  PyUnicode_FromString        := Import(Format('PyUnicode%s_FromString',[UnicodeSuffix]));
+  PyUnicode_FromStringAndSize := Import(Format('PyUnicode%s_FromStringAndSize',[UnicodeSuffix]));
+  PyUnicode_FromKindAndData   := Import(Format('PyUnicode%s_FromKindAndData',[UnicodeSuffix]));
+  PyUnicode_AsWideChar        := Import(Format('PyUnicode%s_AsWideChar',[UnicodeSuffix]));
+  PyUnicode_AsUTF8            := Import(Format('PyUnicode%s_AsUTF8',[UnicodeSuffix]));
+  PyUnicode_AsUTF8AndSize     := Import(Format('PyUnicode%s_AsUTF8AndSize',[UnicodeSuffix]));
+  PyUnicode_Decode            := Import(Format('PyUnicode%s_Decode',[UnicodeSuffix]));
+  PyUnicode_DecodeUTF16       := Import(Format('PyUnicode%s_DecodeUTF16',[UnicodeSuffix]));
+  PyUnicode_AsEncodedString   := Import(Format('PyUnicode%s_AsEncodedString',[UnicodeSuffix]));
+  PyUnicode_FromOrdinal       := Import(Format('PyUnicode%s_FromOrdinal',[UnicodeSuffix]));
+  PyUnicode_GetSize           := Import(Format('PyUnicode%s_GetSize',[UnicodeSuffix]));
   PyWeakref_GetObject         := Import('PyWeakref_GetObject');
   PyWeakref_NewProxy          := Import('PyWeakref_NewProxy');
   PyWeakref_NewRef            := Import('PyWeakref_NewRef');
