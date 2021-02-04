@@ -1505,7 +1505,6 @@ type
     FBuiltInModuleName: String;
     function GetInitialized: Boolean;
 
-    procedure AfterLoad; override;
     function  GetQuitMessage : String; override;
     procedure CheckPython;
     function  GetUnicodeTypeSuffix : String;
@@ -2052,7 +2051,7 @@ type
   constructor Create(AOwner: TComponent); override;
 
   // Public methods
-  procedure MapDll;
+  procedure MapDll; override;
 
   // Public properties
   property Initialized : Boolean read GetInitialized;
@@ -2151,7 +2150,7 @@ type
   protected
     procedure AfterLoad; override;
     procedure BeforeLoad; override;
-    procedure DoOpenDll(const aDllName : String); override;
+    procedure DoOpenDll(aDllName : String); override;
     procedure SetInitScript(Value: TStrings);
     function  GetThreadState: PPyThreadState;
     function  GetInterpreterState: PPyInterpreterState;
@@ -3083,7 +3082,7 @@ procedure PyObjectDestructor( pSelf : PPyObject); cdecl;
 procedure FreeSubtypeInst(ob:PPyObject); cdecl;
 procedure Register;
 function  PyType_HasFeature(AType : PPyTypeObject; AFlag : Integer) : Boolean;
-function GetPythonVersionFromDLLName(const DLLFileName : String): String;
+function GetPythonVersionFromDLLName(DLLFileName : String): String;
 
 { Helper functions}
 (*
@@ -3296,52 +3295,19 @@ begin
   FAutoUnload := True;
 end;
 
-function  TPythonInterface.GetDllPath : String;
+function TPythonInterface.GetDllPath: String;
 {$IFDEF MSWINDOWS}
 var
   AllUserInstall: Boolean;
 {$ENDIF}
 begin
-  Result := DllPath;
+  Result := FDllPath;
 
   {$IFDEF MSWINDOWS}
-  if DLLPath = '' then begin
+  if Result = '' then begin
     IsPythonVersionRegistered(RegVersion, Result, AllUserInstall);
   end;
   {$ENDIF}
-
-  if Result <> '' then
-  begin
-    Result := IncludeTrailingPathDelimiter(Result);
-  end;
-end;
-
-procedure TPythonInterface.AfterLoad;
-begin
-  inherited;
-  FIsPython3000 := Pos('PYTHON3', UpperCase(DLLName)) >  0;
-  FMajorVersion := StrToInt(DLLName[7 {$IFDEF LINUX}+3{$ENDIF}]);
-  FMinorVersion := StrToInt(DLLName[8{$IFDEF LINUX}+4{$ENDIF}]);
-
-
-  if FIsPython3000 then
-    FBuiltInModuleName := 'builtins'
-  else
-    FBuiltInModuleName := '__builtin__';
-
-  try
-    MapDll;
-  except
-    on E: Exception do begin
-      if FatalMsgDlg then
-{$IFDEF MSWINDOWS}
-        MessageBox( GetActiveWindow, PChar(E.Message), 'Error', MB_TASKMODAL or MB_ICONSTOP );
-{$ELSE}
-        WriteLn( ErrOutput, E.Message );
-{$ENDIF}
-      if FatalAbort then Quit;
-    end;
-  end;
 end;
 
 function  TPythonInterface.GetQuitMessage : String;
@@ -3375,6 +3341,15 @@ end;
 
 procedure TPythonInterface.MapDll;
 begin
+  FIsPython3000 := Pos('PYTHON3', UpperCase(DLLName)) >  0;
+  FMajorVersion := StrToInt(DLLName[7 {$IFDEF LINUX}+3{$ENDIF}]);
+  FMinorVersion := StrToInt(DLLName[8{$IFDEF LINUX}+4{$ENDIF}]);
+
+  if FIsPython3000 then
+    FBuiltInModuleName := 'builtins'
+  else
+    FBuiltInModuleName := '__builtin__';
+
   Py_DebugFlag               := Import('Py_DebugFlag');
   Py_VerboseFlag             := Import('Py_VerboseFlag');
   Py_InteractiveFlag         := Import('Py_InteractiveFlag');
@@ -3783,12 +3758,12 @@ begin
   PyType_GenericAlloc       :=Import('PyType_GenericAlloc');
   PyType_GenericNew         :=Import('PyType_GenericNew');
   PyType_Ready              :=Import('PyType_Ready');
-  PyUnicode_FromWideChar    :=Import(AnsiString(Format('PyUnicode%s_FromWideChar',[GetUnicodeTypeSuffix])));
-  PyUnicode_AsWideChar      :=Import(AnsiString(Format('PyUnicode%s_AsWideChar',[GetUnicodeTypeSuffix])));
-  PyUnicode_Decode          :=Import(AnsiString(Format('PyUnicode%s_Decode',[GetUnicodeTypeSuffix])));
-  PyUnicode_AsEncodedString :=Import(AnsiString(Format('PyUnicode%s_AsEncodedString',[GetUnicodeTypeSuffix])));
-  PyUnicode_FromOrdinal     :=Import(AnsiString(Format('PyUnicode%s_FromOrdinal',[GetUnicodeTypeSuffix])));
-  PyUnicode_GetSize         :=Import(AnsiString(Format('PyUnicode%s_GetSize',[GetUnicodeTypeSuffix])));
+  PyUnicode_FromWideChar    :=Import(Format('PyUnicode%s_FromWideChar',[GetUnicodeTypeSuffix]));
+  PyUnicode_AsWideChar      :=Import(Format('PyUnicode%s_AsWideChar',[GetUnicodeTypeSuffix]));
+  PyUnicode_Decode          :=Import(Format('PyUnicode%s_Decode',[GetUnicodeTypeSuffix]));
+  PyUnicode_AsEncodedString :=Import(Format('PyUnicode%s_AsEncodedString',[GetUnicodeTypeSuffix]));
+  PyUnicode_FromOrdinal     :=Import(Format('PyUnicode%s_FromOrdinal',[GetUnicodeTypeSuffix]));
+  PyUnicode_GetSize         :=Import(Format('PyUnicode%s_GetSize',[GetUnicodeTypeSuffix]));
   PyWeakref_GetObject       :=Import('PyWeakref_GetObject');
   PyWeakref_NewProxy        :=Import('PyWeakref_NewProxy');
   PyWeakref_NewRef          :=Import('PyWeakref_NewRef');
@@ -4499,12 +4474,12 @@ begin
   inherited;
 end;
 
-procedure TPythonEngine.DoOpenDll(const aDllName : String);
+procedure TPythonEngine.DoOpenDll(aDllName : String);
 var
   i : Integer;
 begin
   if UseLastKnownVersion then
-    for i:= Integer(COMPILED_FOR_PYTHON_VERSION_INDEX) to High(PYTHON_KNOWN_VERSIONS) do
+    for i:= High(PYTHON_KNOWN_VERSIONS) downto Integer(COMPILED_FOR_PYTHON_VERSION_INDEX) do
     begin
       RegVersion := PYTHON_KNOWN_VERSIONS[i].RegVersion;
       FDLLHandle := SafeLoadLibrary(GetDllPath+PYTHON_KNOWN_VERSIONS[i].DllName);
@@ -9534,7 +9509,7 @@ begin
                                 TPythonType, TPythonModule, TPythonDelphiVar]);
 end;
 
-function GetPythonVersionFromDLLName(const DLLFileName : String): String;
+function GetPythonVersionFromDLLName(DLLFileName : String): String;
 begin
   Result := DLLFileName[{$IFDEF MSWINDOWS}7{$ELSE}10{$ENDIF}] + '.' + DLLFileName[{$IFDEF MSWINDOWS}8{$ELSE}11{$ENDIF}];
 end;

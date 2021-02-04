@@ -111,12 +111,15 @@ type
     function IsAPIVersionStored: Boolean;
     function IsDllNameStored: Boolean;
     function IsRegVersionStored: Boolean;
-    procedure SetDllName(const Value: String);
+    procedure SetDllName(const Value: String); virtual;
+    procedure SetDllPath(const Value: String); virtual;
+    function GetDllName: String; virtual;
   protected
     FDllName            : String;
     FDllPath            : String;
     FAPIVersion         : Integer;
     FRegVersion         : String;
+    FLastError          : String;
     FAutoLoad           : Boolean;
     FAutoUnload         : Boolean;
     FFatalMsgDlg        : Boolean;
@@ -127,14 +130,17 @@ type
     FOnAfterLoad        : TNotifyEvent;
     FOnBeforeUnload     : TNotifyEvent;
 
-    function  Import(const funcname: AnsiString; canFail : Boolean = True): Pointer;
+    procedure CallMapDll; virtual;
+    function  Import(const funcname: String; ExceptionOnFailure: Boolean = True): Pointer;
+    function  Import2(funcname: String; args: integer=-1; ExceptionOnFailure: Boolean = True): Pointer;
     procedure Loaded; override;
     procedure BeforeLoad; virtual;
     procedure AfterLoad; virtual;
     procedure BeforeUnload; virtual;
     function  GetQuitMessage : String; virtual;
-    procedure DoOpenDll(const aDllName : String); virtual;
+    procedure DoOpenDll(aDllName : String); virtual;
     function  GetDllPath : String; virtual;
+    procedure MapDll; virtual; abstract;
 
   public
     // Constructors & Destructors
@@ -144,16 +150,21 @@ type
     // Public methods
     procedure OpenDll(const aDllName : String);
     function  IsHandleValid : Boolean;
-    procedure LoadDll;
+    function LoadDll: Boolean; virtual;
     procedure UnloadDll;
     procedure Quit;
+    function GetDllFullFileName: String;
+    class function CreateInstance(DllPath: String = ''; DllName: String = ''): TDynamicDll;
+    class function CreateInstanceAndLoad(DllPath: String = ''; DllName: String = ''): TDynamicDll;
 
     // Public properties
   published
     property AutoLoad : Boolean read FAutoLoad write FAutoLoad default True;
     property AutoUnload : Boolean read FAutoUnload write FAutoUnload default True;
-    property DllName : String read FDllName write SetDllName stored IsDllNameStored;
-    property DllPath : String read FDllPath write FDllPath;
+    property DllName : String read GetDllName write SetDllName stored IsDllNameStored;
+    property DllPath : String read GetDllPath write SetDllPath;
+    property DllFullFileName : String read GetDllFullFileName;
+    property LastError : String read FLastError;
     property APIVersion : Integer read FAPIVersion write FAPIVersion stored IsAPIVersionStored;
     property RegVersion : String read FRegVersion write FRegVersion stored IsRegVersionStored;
     property FatalAbort :  Boolean read FFatalAbort write FFatalAbort default True;
@@ -164,10 +175,7 @@ type
     property OnBeforeUnload : TNotifyEvent read FOnBeforeUnload write FOnBeforeUnload;
   end;
 
-
 implementation
-
-uses PythonEngine;
 
 (*******************************************************)
 (**                                                   **)
@@ -175,38 +183,41 @@ uses PythonEngine;
 (**                                                   **)
 (*******************************************************)
 
-procedure TDynamicDll.DoOpenDll(const aDllName : String);
+procedure TDynamicDll.DoOpenDll(aDllName : String);
 begin
   if not IsHandleValid then
   begin
-    FDllName := aDllName;
+    if aDllName='' then
+      aDllName := DllName;
+    if aDllName='' then
+      exit;
+    SetDllDirectory(PChar(GetDllPath));
     FDLLHandle := SafeLoadLibrary(
       {$IFDEF FPC}
-        PAnsiChar(AnsiString(GetDllPath+DllName))
+        PAnsiChar(AnsiString(aDllName))
       {$ELSE}
-        GetDllPath+DllName
+        GetDllPath+aDllName
       {$ENDIF}
     );
   end;
 end;
 
-function  TDynamicDll.GetDllPath : String;
-{$IFDEF MSWINDOWS}
-var
-  AllUserInstall: Boolean;
-{$ENDIF}
+function TDynamicDll.GetDllFullFileName: String;
 begin
-  Result := DllPath;
+  Result := DllPath + DllName;
+end;
 
-  if Result <> '' then
-  begin
-    Result := IncludeTrailingPathDelimiter(Result);
-  end;
+function TDynamicDll.GetDllName: String;
+begin
+  Result := FDllName;
+end;
+
+function  TDynamicDll.GetDllPath : String;
+begin
+  Result := FDllPath;
 end;
 
 procedure  TDynamicDll.OpenDll(const aDllName : String);
-var
-  s : String;
 begin
   UnloadDll;
 
@@ -218,17 +229,17 @@ begin
 
   if not IsHandleValid then begin
 {$IFDEF MSWINDOWS}
-    s := Format('Error %d: Could not open Dll "%s"',[GetLastError, DllName]);
+    FLastError := Format('Error %d: Could not open Dll "%s"',[GetLastError, DllName]);
 {$ENDIF}
 {$IFDEF LINUX}
-    s := Format('Error: Could not open Dll "%s"',[DllName]);
+    FLastError := Format('Error: Could not open Dll "%s"',[DllName]);
 {$ENDIF}
     if FatalMsgDlg then
 {$IFDEF MSWINDOWS}
-      MessageBox( GetActiveWindow, PChar(s), 'Error', MB_TASKMODAL or MB_ICONSTOP );
+      MessageBox( GetActiveWindow, PChar(FLastError), 'Error', MB_TASKMODAL or MB_ICONSTOP );
 {$ENDIF}
 {$IFDEF LINUX}
-      WriteLn(ErrOutput, s);
+      WriteLn(ErrOutput, FLastError);
 {$ENDIF}
 
     if FatalAbort then
@@ -244,6 +255,7 @@ begin
   FFatalAbort           := True;
   FAutoLoad             := True;
   FUseLastKnownVersion  := True;
+  FDLLHandle            := 0;
 end;
 
 destructor TDynamicDll.Destroy;
@@ -253,12 +265,12 @@ begin
   inherited;
 end;
 
-function TDynamicDll.Import(const funcname: AnsiString; canFail : Boolean = True): Pointer;
+function TDynamicDll.Import(const funcname: String; ExceptionOnFailure: Boolean): Pointer;
 var
   E : EDllImportError;
 begin
-  Result := GetProcAddress( FDLLHandle, PAnsiChar(funcname) );
-  if (Result = nil) and canFail then begin
+  Result := GetProcAddress( FDLLHandle, PChar(funcname) );
+  if (Result = nil) and ExceptionOnFailure then begin
     {$IFDEF MSWINDOWS}
     E := EDllImportError.CreateFmt('Error %d: could not map symbol "%s"', [GetLastError, funcname]);
     E.ErrorCode := GetLastError;
@@ -268,6 +280,17 @@ begin
     E.WrongFunc := funcname;
     raise E;
   end;
+end;
+
+function TDynamicDll.Import2(funcname: String; args: integer; ExceptionOnFailure: Boolean): Pointer;
+begin
+  {$IFDEF WIN32}
+  // using STDCall name decoration
+  // copy paste the function names from dependency walker to notepad and search for the function name there.
+  if args>=0 then
+    funcname := '_'+funcname+'@'+IntToStr(args);
+  {$ENDIF}
+  Result := Import(funcname, ExceptionOnFailure);
 end;
 
 procedure TDynamicDll.Loaded;
@@ -287,9 +310,10 @@ begin
 {$ENDIF}
 end;
 
-procedure TDynamicDll.LoadDll;
+function TDynamicDll.LoadDll: Boolean;
 begin
   OpenDll( DllName );
+  Result := IsHandleValid;
 end;
 
 procedure TDynamicDll.UnloadDll;
@@ -311,6 +335,7 @@ procedure TDynamicDll.AfterLoad;
 begin
   if Assigned( FOnAfterLoad ) then
     FOnAfterLoad( Self );
+  CallMapDll;
 end;
 
 procedure TDynamicDll.BeforeUnload;
@@ -359,6 +384,48 @@ end;
 procedure TDynamicDll.SetDllName(const Value: String);
 begin
   FDllName := Value;
+end;
+
+procedure TDynamicDll.SetDllPath(const Value: String);
+begin
+  if Value='' then
+    FDllPath := ''
+  else
+    FDllPath := IncludeTrailingPathDelimiter(Value);
+end;
+
+procedure TDynamicDll.CallMapDll;
+begin
+  try
+    MapDll;
+  except
+    on E: Exception do begin
+      if FatalMsgDlg then
+{$IFDEF MSWINDOWS}
+        MessageBox( GetActiveWindow, PChar(E.Message), 'Error', MB_TASKMODAL or MB_ICONSTOP );
+{$ELSE}
+        WriteLn( ErrOutput, E.Message );
+{$ENDIF}
+      if FatalAbort then Quit;
+    end;
+  end;
+end;
+
+class function TDynamicDll.CreateInstance(DllPath, DllName: String): TDynamicDll;
+begin
+  Result := Create(nil);
+  if DllPath<>'' then
+    Result.DllPath := DllPath;
+  if DllName<>'' then
+    Result.DllName := DllName;
+end;
+
+class function TDynamicDll.CreateInstanceAndLoad(DllPath, DllName: String): TDynamicDll;
+begin
+  Result := CreateInstance(DllPath, DllName);
+  Result.LoadDll;
+  if not Result.IsHandleValid then
+    FreeAndNil(Result);
 end;
 
 end.
