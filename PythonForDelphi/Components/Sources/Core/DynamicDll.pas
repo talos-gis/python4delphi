@@ -107,7 +107,7 @@ type
 
 type
   TDynamicDll = class(TComponent)
-  private
+  protected
     function IsAPIVersionStored: Boolean;
     function IsDllNameStored: Boolean;
     function IsRegVersionStored: Boolean;
@@ -134,7 +134,7 @@ type
     procedure BeforeUnload; virtual;
     function  GetQuitMessage : String; virtual;
     procedure DoOpenDll(const aDllName : String); virtual;
-    function  GetDllPath : String;
+    function  GetDllPath : String; virtual;
 
   public
     // Constructors & Destructors
@@ -197,12 +197,6 @@ var
 {$ENDIF}
 begin
   Result := DllPath;
-
-  {$IFDEF MSWINDOWS}
-  if DLLPath = '' then begin
-    IsPythonVersionRegistered(RegVersion, Result, AllUserInstall);
-  end;
-  {$ENDIF}
 
   if Result <> '' then
   begin

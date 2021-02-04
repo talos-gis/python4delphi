@@ -1509,6 +1509,7 @@ type
     function  GetQuitMessage : String; override;
     procedure CheckPython;
     function  GetUnicodeTypeSuffix : String;
+    function  GetDllPath : String; override;
 
   public
     // define Python flags. See file pyDebug.h
@@ -3293,6 +3294,26 @@ begin
   FAPIVersion := PYTHON_KNOWN_VERSIONS[i].APIVersion;
   FRegVersion := PYTHON_KNOWN_VERSIONS[i].RegVersion;
   FAutoUnload := True;
+end;
+
+function  TPythonInterface.GetDllPath : String;
+{$IFDEF MSWINDOWS}
+var
+  AllUserInstall: Boolean;
+{$ENDIF}
+begin
+  Result := DllPath;
+
+  {$IFDEF MSWINDOWS}
+  if DLLPath = '' then begin
+    IsPythonVersionRegistered(RegVersion, Result, AllUserInstall);
+  end;
+  {$ENDIF}
+
+  if Result <> '' then
+  begin
+    Result := IncludeTrailingPathDelimiter(Result);
+  end;
 end;
 
 procedure TPythonInterface.AfterLoad;
