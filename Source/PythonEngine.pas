@@ -3052,6 +3052,9 @@ procedure MaskFPUExceptions(ExceptionsMasked : boolean;
 function CleanString(const s : AnsiString; AppendLF : Boolean = True) : AnsiString; overload;
 function CleanString(const s : UnicodeString; AppendLF : Boolean = True) : UnicodeString; overload;
 
+var
+  PythonEngineOnAfterInitialization : TNotifyEvent = nil;
+
 implementation
 
 uses
@@ -4698,6 +4701,8 @@ procedure TPythonEngine.AfterLoad;
 begin
   inherited;
   Initialize;
+  if Assigned(PythonEngineOnAfterInitialization) then
+    PythonEngineOnAfterInitialization( Self );
 end;
 
 procedure TPythonEngine.BeforeLoad;
