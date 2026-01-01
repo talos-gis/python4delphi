@@ -2071,7 +2071,7 @@ type
     FPyDateTime_DateTimeTZType:  PPyObject;
 
   protected
-    FBasePythonPath: TStrings;
+    FBasePythonPath: TArray<string>;
     procedure  Initialize;
     procedure  Finalize;
     procedure AfterLoad; override;
@@ -2094,7 +2094,7 @@ type
     // Constructors & Destructors
     constructor Create(AOwner: TComponent); override;
     destructor  Destroy; override;
-    procedure GetPythonPathAsStrings(Strings: TStrings; WhichPaths: TWhichPythonPaths=wppAll);
+    function GetPythonPathAsStrings(WhichPaths: TWhichPythonPaths=wppAll): TArray<string>;
 
     // Public methods
     procedure  SetPythonHome(const PythonHome: UnicodeString);
@@ -3103,7 +3103,8 @@ uses
   PsAPI,
 {$ENDIF}
 {$ENDIF}
-  Math;
+  Math,
+  Generics.Collections;
 
 (*******************************************************)
 (**                                                   **)
@@ -4644,7 +4645,6 @@ begin
   FUseWindowsConsole       := False;
   FPyFlags                 := DEFAULT_FLAGS;
   FDatetimeConversionMode  := DEFAULT_DATETIME_CONVERSION_MODE;
-  FBasePythonPath          := TStringList.Create;
   if csDesigning in ComponentState then
     begin
       for i := 0 to AOwner.ComponentCount - 1 do
@@ -4667,7 +4667,7 @@ begin
   FClients.Free;
   FInitScript.Free;
   FTraceback.Free;
-  FBasePythonPath.Free;
+  FBasePythonPath := nil;
   inherited;
 end;
 
@@ -4720,7 +4720,7 @@ begin
   FPyDateTime_DateTimeTZType  := nil;
 end;
 
-procedure TPythonEngine.GetPythonPathAsStrings(Strings: TStrings; WhichPaths: TWhichPythonPaths);
+function TPythonEngine.GetPythonPathAsStrings(WhichPaths: TWhichPythonPaths): TArray<string>;
 var
   list, obj2: PPyObject;
   i: integer;
@@ -4730,17 +4730,16 @@ begin
   case WhichPaths of
     wppAll, wppOnlyCustom: begin
       ReturnAll := WhichPaths = wppAll;
-      Strings.Clear;
       list := self.PySys_GetObject('path');
       for i := 0 to PyList_Size(list)-1 do begin
         obj2 := PyList_GetItem(list, i);
         item := PyObjectAsString(obj2);
-        if ReturnAll or not FBasePythonPath.Contains(item) then
-          Strings.Add(item);
+        if ReturnAll or not TArray.Contains<string>(FBasePythonPath, item) then
+          Result := Result + [item];
       end;
     end;
     wppOnlyBase: begin
-      Strings.SetStrings(FBasePythonPath)
+      Result := Copy(FBasePythonPath);
     end;
   end;
 end;
@@ -4749,7 +4748,7 @@ procedure TPythonEngine.AfterLoad;
 begin
   inherited;
   Initialize;
-  GetPythonPathAsStrings(FBasePythonPath, wppAll);
+  FBasePythonPath := GetPythonPathAsStrings(wppAll);
 end;
 
 procedure TPythonEngine.BeforeLoad;
